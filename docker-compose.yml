@@ -1,0 +1,78 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: calendar_db
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d calendar_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  mailhog:
+    image: mailhog/mailhog:latest
+    restart: unless-stopped
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 4000
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      DB_NAME: calendar_db
+      CORS_ORIGIN: http://localhost:5173
+      # Стек работает по http: cookie с флагом Secure Safari по http не примет
+      COOKIE_SECURE: "false"
+      APP_URL: http://localhost:5173
+      # dev-значения; в реальном окружении секреты передаются извне
+      JWT_ACCESS_SECRET: dev-access-secret-please-change-32chars-min
+      JWT_ACCESS_TTL: 15m
+      JWT_REFRESH_TTL_DAYS: 7
+      ADMIN_EMAIL: admin@example.com
+      ADMIN_PASSWORD: admin12345
+      LOG_LEVEL: info
+      SMTP_HOST: mailhog
+      SMTP_PORT: 1025
+      SMTP_FROM: "Calendar App <noreply@calendar.local>"
+      LOG_DIR: /app/logs
+    volumes:
+      - ./backend/uploads:/app/uploads
+      - ./backend/logs:/app/logs
+    depends_on:
+      db:
+        condition: service_healthy
+      mailhog:
+        condition: service_started
+    ports:
+      - "4000:4000"
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_URL: http://localhost:4000/api
+        VITE_MAILHOG_URL: http://localhost:8025
+    restart: unless-stopped
+    environment:
+      API_ORIGIN: http://localhost:4000
+    depends_on:
+      - backend
+    ports:
+      - "5173:80"
+
+volumes:
+  db_data:
